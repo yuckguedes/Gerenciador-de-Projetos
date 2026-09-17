@@ -7,6 +7,7 @@ from app.database import SessionLocal
 from app.core.security import decode_access_token
 from app.models.user import User
 from app.models.project import Project
+from app.models.task import Task
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -58,3 +59,18 @@ def get_owned_project(project_id: UUID, db: Session, current_user: User) -> Proj
             detail={"code": "PROJECT_ACCESS_DENIED", "message": "Acesso negado a este projeto"},
         )
     return project
+
+
+def get_owned_task(task_id: UUID, db: Session, current_user: User) -> Task:
+    task = db.get(Task, task_id)
+    if task is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "TASK_NOT_FOUND", "message": "Tarefa não encontrada"},
+        )
+    if task.project.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "TASK_ACCESS_DENIED", "message": "Acesso negado a esta tarefa"},
+        )
+    return task
