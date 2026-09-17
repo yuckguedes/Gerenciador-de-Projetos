@@ -1,3 +1,4 @@
+from uuid import UUID
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError
@@ -5,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.core.security import decode_access_token
 from app.models.user import User
+from app.models.project import Project
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -41,3 +43,18 @@ def get_current_user(
     if user is None:
         raise credentials_exception
     return user
+
+
+def get_owned_project(project_id: UUID, db: Session, current_user: User) -> Project:
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "PROJECT_NOT_FOUND", "message": "Projeto não encontrado"},
+        )
+    if project.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "PROJECT_ACCESS_DENIED", "message": "Acesso negado a este projeto"},
+        )
+    return project
