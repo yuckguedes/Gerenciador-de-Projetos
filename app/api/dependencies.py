@@ -4,6 +4,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.requests import Request
 from jose import JWTError
 from sqlalchemy.orm import Session
+import structlog
 from app.database import SessionLocal
 from app.core.security import decode_access_token
 from app.models.user import User
@@ -34,6 +35,7 @@ def get_db():
 
 
 def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ) -> User:
@@ -53,6 +55,13 @@ def get_current_user(
     user = db.get(User, user_id)
     if user is None:
         raise credentials_exception
+
+    # request.state é compartilhado entre a task da rota e a da middleware de logging
+    # (que roda a aplicação numa task separada); contextvars setadas aqui não
+    # propagariam de volta para o log final da requisição, então usamos request.state
+    # para essa comunicação e contextvars só para propagação dentro da própria task.
+    request.state.user_id = str(user.id)
+    structlog.contextvars.bind_contextvars(user_id=str(user.id))
     return user
 
 

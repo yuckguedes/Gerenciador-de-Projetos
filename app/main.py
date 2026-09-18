@@ -1,18 +1,48 @@
+import time
+import uuid
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
-import logging
+from starlette.middleware.base import BaseHTTPMiddleware
+import structlog
 
 from app.api.routes import auth, projects, tasks
+from app.core.logging import configure_logging
 
-logger = logging.getLogger("app")
+configure_logging()
+logger = structlog.get_logger("app")
 
 app = FastAPI(title="Desafio API")
 
 app.include_router(auth.router)
 app.include_router(projects.router)
 app.include_router(tasks.router)
+
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        structlog.contextvars.clear_contextvars()
+        request_id = str(uuid.uuid4())
+        structlog.contextvars.bind_contextvars(request_id=request_id)
+
+        start = time.perf_counter()
+        response = await call_next(request)
+        duration_ms = round((time.perf_counter() - start) * 1000, 2)
+
+        response.headers["X-Request-ID"] = request_id
+        logger.info(
+            "request_finished",
+            method=request.method,
+            path=request.url.path,
+            status_code=response.status_code,
+            duration_ms=duration_ms,
+            user_id=getattr(request.state, "user_id", None),
+        )
+        return response
+
+
+app.add_middleware(RequestLoggingMiddleware)
 
 
 @app.exception_handler(RequestValidationError)
@@ -46,7 +76,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
-    logger.exception("Erro não tratado")
+    logger.exception("unhandled_exception", method=request.method, path=request.url.path)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
