@@ -246,3 +246,21 @@ def test_offset_pagination_is_stable_when_sort_values_tie(auth_client, project_i
 
     assert len(seen_ids) == 7
     assert set(seen_ids) == created_ids  # sem repetição e sem lacuna entre as páginas
+
+
+@pytest.mark.parametrize("query", ["page=0", "page=-1", "page=abc", "page_size=0", "page_size=101"])
+def test_list_tasks_rejects_invalid_pagination_params(auth_client, project_id, query):
+    resp = auth_client.get(f"/projects/{project_id}/tasks?{query}")
+    assert resp.status_code == 422
+    assert resp.json()["detail"]["code"] == "VALIDATION_ERROR"
+
+
+def test_list_tasks_accepts_page_size_boundaries_and_empty_list(auth_client, project_id):
+    empty = auth_client.get(f"/projects/{project_id}/tasks").json()
+    assert empty == {"items": [], "page": 1, "page_size": 20, "total": 0, "total_pages": 0}
+
+    for i in range(3):
+        auth_client.post(f"/projects/{project_id}/tasks", json={"title": f"Tarefa {i}", "priority": "low"})
+
+    assert auth_client.get(f"/projects/{project_id}/tasks?page_size=1").json()["total_pages"] == 3
+    assert auth_client.get(f"/projects/{project_id}/tasks?page_size=100").json()["total_pages"] == 1

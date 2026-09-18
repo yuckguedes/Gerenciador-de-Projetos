@@ -1,4 +1,3 @@
-from math import ceil
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
@@ -7,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import get_current_user, get_db, get_owned_project
 from app.models.project import Project
 from app.models.user import User
+from app.repositories.project_repository import list_projects_paginated
 from app.schemas.pagination import PaginatedResponse
 from app.schemas.project import ProjectCreate, ProjectResponse, ProjectUpdate
 from app.services.versioned_update import apply_versioned_update
@@ -34,15 +34,13 @@ def list_projects(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    query = db.query(Project).filter(Project.owner_id == current_user.id)
-    total = query.count()
-    items = query.order_by(Project.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    items, total, total_pages = list_projects_paginated(db, current_user.id, page, page_size)
     return PaginatedResponse(
         items=items,
         page=page,
         page_size=page_size,
         total=total,
-        total_pages=ceil(total / page_size) if total else 0,
+        total_pages=total_pages,
     )
 
 
