@@ -10,7 +10,7 @@ API REST para gerenciamento de projetos e tarefas, desenvolvida para o desafio t
 - PostgreSQL
 - JWT (python-jose) + bcrypt (passlib)
 - Docker / Docker Compose
-- Pytest + httpx (TestClient)
+- Pytest + httpx (TestClient) + testcontainers-python
 
 ## Como executar
 
@@ -30,7 +30,7 @@ Pré-requisito: Docker e Docker Compose instalados.
    docker compose up --build
    ```
 
-   Isso sobe três serviços: `db` (PostgreSQL de desenvolvimento), `db_test` (PostgreSQL isolado para os testes automatizados) e `api` (a aplicação FastAPI). O serviço `api` aguarda o `db` ficar saudável e **executa as migrations do Alembic automaticamente** antes de iniciar o servidor — nenhum passo manual adicional é necessário além do `.env`.
+   Isso sobe dois serviços: `db` (PostgreSQL de desenvolvimento) e `api` (a aplicação FastAPI). O serviço `api` aguarda o `db` ficar saudável e **executa as migrations do Alembic automaticamente** antes de iniciar o servidor — nenhum passo manual adicional é necessário além do `.env`.
 
 3. A documentação Swagger fica disponível em:
 
@@ -40,12 +40,13 @@ Pré-requisito: Docker e Docker Compose instalados.
 
 ## Como rodar os testes
 
-Os testes usam um banco PostgreSQL isolado (`db_test`, porta `5433`), separado do banco de desenvolvimento, e precisam rodar dentro da rede do Docker Compose (o hostname `db_test` só é resolvido ali):
+Pré-requisitos: Docker rodando (Docker Desktop, ou equivalente) e as dependências Python instaladas num ambiente virtual local (`pip install -r requirements.txt`).
 
 ```bash
-docker compose up -d db_test
-docker compose run --rm api pytest -v
+pytest -v
 ```
+
+Não é necessário nenhum passo manual de infraestrutura antes — os testes usam [testcontainers-python](https://testcontainers-python.readthedocs.io/) para subir um container **Postgres efêmero, novo e isolado** automaticamente no início da sessão de testes (via `tests/conftest.py`), e derrubá-lo (incluindo o container "reaper" `testcontainers-ryuk`, que garante a limpeza mesmo se o processo travar) assim que a suíte terminar. Não existe mais um serviço `db_test` fixo no `docker-compose.yml`: o próprio `pytest` gerencia o ciclo de vida completo do banco de teste, container incluído.
 
 Cada teste roda em uma execução isolada: as tabelas são recriadas e destruídas a cada função de teste (`setup_database` em `tests/conftest.py`), então a ordem de execução não importa e não há dados residuais entre testes.
 
@@ -88,12 +89,12 @@ tests/               # pytest + conftest.py
   - `POST /auth/logout`: revoga um refresh token específico sob demanda (encerra sessão daquele dispositivo/cliente).
   - Testado em `tests/test_auth.py`: emissão, rotação, detecção de reuso com revogação em cascata, e logout.
 - **Paginação por cursor**: adicionamos `GET /projects/{project_id}/tasks/cursor` como um endpoint **adicional** à listagem paginada por `page`/`offset` já exigida pelo enunciado (não a substitui, já que o formato `{items, page, page_size, total, total_pages}` é um requisito obrigatório). O cursor é opaco ao cliente: um base64 de `created_at|id` do último item da página anterior (`app/core/cursor.py`). A consulta usa `WHERE (created_at, id) < (:cursor_created_at, :cursor_id) ORDER BY created_at DESC, id DESC LIMIT :limit + 1` — a composição `(created_at, id)` (não só `created_at`) evita ambiguidade em caso de empate de timestamp, e buscar `limit + 1` permite saber se existe próxima página (`has_more`) sem um segundo `COUNT` (que é justamente o que a paginação por cursor evita — por isso a resposta não tem `total`/`total_pages`, diferente da paginação por offset). Suporta os mesmos filtros (`status`, `priority`, `search`) da listagem paginada; não suporta `order_by` customizado, porque cursor pagination exige uma ordenação estável e determinística ligada à própria composição do cursor — permitir trocar a coluna de ordenação exigiria codificar qual coluna foi usada dentro do cursor, complexidade desnecessária para este diferencial. Testado em `tests/test_tasks.py`: cobertura completa de 12 itens sem sobreposição nem lacunas ao longo de 3 páginas, e cursor malformado retornando `422 INVALID_CURSOR`.
+- **Testes de integração executados em containers**: `tests/conftest.py` usa [testcontainers-python](https://testcontainers-python.readthedocs.io/) (`PostgresContainer`) para subir um Postgres **real, efêmero e isolado** em container Docker automaticamente no início da sessão de testes, e derrubá-lo ao final (`_stop_postgres_container`, fixture de sessão) — inclusive o container "reaper" (`testcontainers-ryuk`) que garante a limpeza mesmo que o processo de teste seja interrompido abruptamente. Isso eliminou por completo o serviço `db_test` que existia antes no `docker-compose.yml`: não há mais nenhum passo manual de infraestrutura antes de rodar os testes — `pytest` sozinho já provisiona e descarta o banco. Confirmado na prática inspecionando `docker ps` durante uma execução de teste (um container `postgres:16` com nome aleatório aparece e desaparece junto com o Ryuk).
 
 ## Diferenciais não implementados
 
-Os itens abaixo são listados como opcionais pelo enunciado e não foram implementados nesta entrega. Descrição do que faltou e de como seria feito:
+Os itens abaixo são listados como opcionais pelo enunciado e ainda não foram implementados nesta entrega. Descrição do que falta e de como seria feito:
 
-- **Testes de integração em containers**: os testes atuais rodam contra um Postgres real (`db_test`), mas dependem de `docker compose up -d db_test` ser executado manualmente antes do `pytest`. Uma versão mais completa usaria `testcontainers-python` para subir e derrubar o Postgres de teste automaticamente dentro da própria suíte, sem exigir esse passo prévio.
 - **Logs estruturados**: hoje só logamos exceções não tratadas via `logger.exception` (texto simples). Uma versão estruturada usaria algo como `structlog` ou `python-json-logger`, emitindo logs em JSON com `request_id`, `user_id`, rota e duração de cada requisição — mais fácil de agregar/consultar em ferramentas como ELK/Datadog.
 - **Endpoint de healthcheck mais completo**: o `/health` atual só confirma que a aplicação está respondendo, sem checar a conexão com o banco. Uma versão mais completa faria um `SELECT 1` contra o Postgres e retornaria `503` se o banco estivesse inacessível.
 - **Pipeline de CI**: não há GitHub Actions (ou similar) configurado para rodar `pytest` e lint automaticamente a cada push/PR. Seria um workflow simples: instalar dependências, garantir Docker disponível no runner (para o testcontainers) e rodar `pytest -v`, falhando o build se algum teste quebrar.

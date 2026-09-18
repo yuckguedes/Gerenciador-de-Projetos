@@ -2,15 +2,29 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
+from testcontainers.community.postgres import PostgresContainer
 
 from app.main import app
 from app.database import Base
 from app.api.dependencies import get_db
 
-TEST_DATABASE_URL = "postgresql://postgres:postgres@db_test:5432/desafio_test_db"
+# Sobe um Postgres efêmero em container Docker automaticamente, só para esta
+# sessão de testes. Não depende de nenhum serviço externo (como um `db_test`
+# do docker-compose) já estar de pé — o próprio testcontainers gerencia o
+# ciclo de vida do container (start aqui, stop no fixture de sessão abaixo).
+postgres_container = PostgresContainer("postgres:16")
+postgres_container.start()
+
+TEST_DATABASE_URL = postgres_container.get_connection_url()
 
 engine = create_engine(TEST_DATABASE_URL)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _stop_postgres_container():
+    yield
+    postgres_container.stop()
 
 
 @pytest.fixture(scope="function", autouse=True)
