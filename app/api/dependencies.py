@@ -1,6 +1,7 @@
 from uuid import UUID
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from starlette.requests import Request
 from jose import JWTError
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
@@ -9,7 +10,19 @@ from app.models.user import User
 from app.models.project import Project
 from app.models.task import Task
 
-bearer_scheme = HTTPBearer(auto_error=False)
+
+class CustomHTTPBearer(HTTPBearer):
+    async def __call__(self, request: Request) -> HTTPAuthorizationCredentials:
+        try:
+            return await super().__call__(request)
+        except HTTPException:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={"code": "MISSING_TOKEN", "message": "Token de autenticação ausente"},
+            )
+
+
+bearer_scheme = CustomHTTPBearer()
 
 
 def get_db():
@@ -21,16 +34,13 @@ def get_db():
 
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ) -> User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail={"code": "INVALID_TOKEN", "message": "Token inválido ou expirado"},
     )
-    if credentials is None:
-        raise credentials_exception
-
     token = credentials.credentials
     try:
         payload = decode_access_token(token)
