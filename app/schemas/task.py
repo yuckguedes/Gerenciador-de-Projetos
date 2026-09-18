@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from typing import Literal
 from uuid import UUID
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 from app.models.task import TaskStatus, TaskPriority
@@ -49,3 +50,13 @@ class TaskResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class TaskFilterParams(BaseModel):
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=20, ge=1, le=100)
+    status: TaskStatus | None = None
+    priority: TaskPriority | None = None
+    search: str | None = None
+    order_by: Literal["created_at", "updated_at", "due_date", "title", "priority"] = "created_at"
+    direction: Literal["asc", "desc"] = "desc"
