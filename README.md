@@ -41,6 +41,29 @@ Pré-requisito: Docker e Docker Compose instalados.
    http://localhost:8000/docs
    ```
 
+## Exemplos de uso (curl)
+
+Fluxo completo com a API rodando em `localhost:8000` (o Swagger em `/docs` permite o mesmo pelo navegador):
+
+```bash
+# 1. Cadastrar e autenticar
+curl -X POST localhost:8000/auth/register -H "Content-Type: application/json" -d '{"name": "Maria", "email": "maria@exemplo.com", "password": "senha12345"}'
+
+curl -X POST localhost:8000/auth/login -H "Content-Type: application/json" -d '{"email": "maria@exemplo.com", "password": "senha12345"}'
+# -> {"access_token": "<TOKEN>", "refresh_token": "...", "token_type": "bearer"}
+
+# 2. Criar um projeto e uma tarefa (use o access_token retornado)
+curl -X POST localhost:8000/projects -H "Authorization: Bearer <TOKEN>" -H "Content-Type: application/json" -d '{"name": "Meu projeto", "description": "Primeiro projeto"}'
+
+curl -X POST localhost:8000/projects/<PROJECT_ID>/tasks -H "Authorization: Bearer <TOKEN>" -H "Content-Type: application/json" -d '{"title": "Escrever relatorio", "priority": "high"}'
+
+# 3. Listar tarefas com filtros, ordenação e paginação
+curl "localhost:8000/projects/<PROJECT_ID>/tasks?status=pending&priority=high&search=relat&order_by=title&direction=asc&page=1&page_size=10" -H "Authorization: Bearer <TOKEN>"
+
+# 4. Atualização parcial (version é opcional; se enviada e desatualizada, retorna 409)
+curl -X PATCH localhost:8000/tasks/<TASK_ID> -H "Authorization: Bearer <TOKEN>" -H "Content-Type: application/json" -d '{"status": "in_progress"}'
+```
+
 ## Como rodar os testes
 
 Pré-requisitos: Docker rodando (Docker Desktop, ou equivalente) e as dependências Python instaladas num ambiente virtual local (`pip install -r requirements.txt`).
@@ -49,7 +72,7 @@ Pré-requisitos: Docker rodando (Docker Desktop, ou equivalente) e as dependênc
 pytest -v
 ```
 
-Os testes usam [testcontainers-python](https://testcontainers-python.readthedocs.io/) para subir um Postgres efêmero automaticamente (via `tests/conftest.py`) e derrubá-lo ao final — nenhum passo manual de infraestrutura antes, sem serviço `db_test` fixo no compose. Cada teste recria e destrói as tabelas (`setup_database`), então a ordem não importa e não há dados residuais entre execuções.
+Os testes usam [testcontainers-python](https://testcontainers-python.readthedocs.io/) para subir um Postgres efêmero automaticamente (via `tests/conftest.py`) e derrubá-lo ao final — nenhum passo manual de infraestrutura antes, sem serviço `db_test` fixo no compose. O schema vem das **migrations reais do Alembic** (`alembic upgrade head`, uma vez por sessão) — as mesmas do `docker compose up`, não de `create_all` — e um teste (`tests/test_migrations.py`) garante que as migrations não divergem dos models. Entre um teste e outro as tabelas são truncadas, então a ordem não importa e não há dados residuais.
 
 ## Lint e checagem de tipos
 
@@ -87,7 +110,7 @@ tests/               # pytest + conftest.py
 - **HTTPBearer em vez de OAuth2PasswordBearer**: login recebe JSON, não form-data, então o fluxo OAuth2 completo não se aplica. Uma `CustomHTTPBearer` distingue token ausente (`401 MISSING_TOKEN`) de token inválido/expirado (`401 INVALID_TOKEN`).
 - **403 só depois de checar que o recurso existe**: acesso a um projeto/tarefa de outro usuário sempre checa existência primeiro (`404` se não existe) e posse depois (`403` se existe mas não é do dono) — nunca esconde a existência de um recurso atrás de um `404` genérico.
 - **Migrations automáticas no boot do container** *(bug real corrigido)*: sem isso, `docker compose up --build` num ambiente do zero subia a API com o banco vazio e qualquer rota quebrava com `500`. Corrigido rodando `alembic upgrade head` no `command` do serviço `api`, antes do Uvicorn.
-- **Limite conhecido do Alembic**: mesmo com `compare_type=True`, o autogenerate não detecta mudança de *tamanho* em `VARCHAR` (só de tipo) — por isso mantivemos `String(500)` como está, em vez de brigar com a ferramenta por uma mudança sem necessidade real.
+- **`description` como `Text`, não `VARCHAR(500)`** *(bug real corrigido)*: o enunciado não limita o tamanho da descrição, mas a coluna era `String(500)`, então uma descrição maior estourava no banco e virava `500`. Migrada para `Text` (migration `b3c1d5e7a9f2`). Detalhe: o autogenerate do Alembic detecta mudança de *tipo* (`compare_type=True`), mas não de *tamanho* de `VARCHAR` — por isso a mudança foi para `Text` e não para outro tamanho.
 - **Models centralizados em `app/models/__init__.py`** *(bug real corrigido)*: `relationship("Task", ...)` referencia a classe por string para evitar import circular, mas isso quebra com `500` se `Task` nunca foi importada antes da primeira query. Resolvido importando `User`, `Project` e `Task` juntos num só lugar.
 - **`order_by`/`direction` como `Literal` na rota, não só no schema** *(bug real corrigido)*: validar manualmente dentro do corpo da rota não gera `422` automático do FastAPI — só parâmetros validados na própria assinatura (via `Query`) geram. Um valor inválido virava `500` até declarar `Literal[...]` direto no parâmetro.
 - **Handler de erro na classe-mãe do Starlette** *(bug real corrigido)*: `404`/`405` internos do framework usam `starlette.exceptions.HTTPException`, não a subclasse do FastAPI usada nas rotas — registrar o handler só na subclasse deixava esses dois casos fora do formato `{"code", "message"}` padronizado.
