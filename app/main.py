@@ -1,12 +1,16 @@
 import time
 import uuid
-from fastapi import FastAPI, Request, status
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 import structlog
 
+from app.api.dependencies import get_db
 from app.api.routes import auth, projects, tasks
 from app.core.logging import configure_logging
 
@@ -89,5 +93,17 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 
 @app.get("/health")
-def health():
-    return {"status": "ok"}
+def health(db: Session = Depends(get_db)):
+    try:
+        db.execute(text("SELECT 1"))
+        database_status = "ok"
+    except SQLAlchemyError:
+        database_status = "unreachable"
+
+    if database_status != "ok":
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"status": "error", "database": database_status},
+        )
+
+    return {"status": "ok", "database": database_status}
