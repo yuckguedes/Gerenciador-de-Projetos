@@ -1,3 +1,5 @@
+import hashlib
+import secrets
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from jose import jwt, JWTError
@@ -22,3 +24,11 @@ def create_access_token(subject: str) -> str:
 
 def decode_access_token(token: str) -> dict:
     return jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+
+
+def generate_refresh_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def hash_refresh_token(raw_token: str) -> str:
+    return hashlib.sha256(raw_token.encode()).hexdigest()
