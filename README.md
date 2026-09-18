@@ -66,7 +66,11 @@ curl -X PATCH localhost:8000/tasks/<TASK_ID> -H "Authorization: Bearer <TOKEN>" 
 
 ## Como rodar os testes
 
-Pré-requisitos: Docker rodando (Docker Desktop, ou equivalente) e as dependências Python instaladas num ambiente virtual local (`pip install -r requirements.txt`).
+Pré-requisitos:
+
+- Docker rodando (Docker Desktop, ou equivalente).
+- Dependências Python instaladas num ambiente virtual local (`pip install -r requirements.txt`).
+- **O arquivo `.env` criado** (`cp .env.example .env`), mesmo que você só vá rodar os testes: as configurações da aplicação são carregadas na importação e, sem ele, o `pytest` falha com um erro de validação do Pydantic antes de executar qualquer teste. O banco dos testes não vem do `.env` — ele é um Postgres efêmero em container.
 
 ```bash
 pytest -v
