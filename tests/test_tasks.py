@@ -141,3 +141,16 @@ def test_delete_project_cascades_tasks(auth_client, project_id):
 
     get_task_resp = auth_client.get(f"/tasks/{task_id}")
     assert get_task_resp.status_code == 404
+
+
+def test_partial_update_task_without_version_still_works(auth_client, project_id):
+    create_resp = auth_client.post(
+        f"/projects/{project_id}/tasks",
+        json={"title": "Tarefa sem versão", "priority": "low"},
+    )
+    task_id = create_resp.json()["id"]
+
+    update_resp = auth_client.patch(f"/tasks/{task_id}", json={"status": "in_progress"})
+    assert update_resp.status_code == 200
+    assert update_resp.json()["status"] == "in_progress"
+    assert update_resp.json()["title"] == "Tarefa sem versão"

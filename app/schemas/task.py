@@ -30,7 +30,10 @@ class TaskUpdate(BaseModel):
     status: TaskStatus | None = None
     priority: TaskPriority | None = None
     due_date: datetime | None = None
-    version: int = Field(description="Versão da tarefa vista pelo cliente antes do update")
+    version: int | None = Field(
+        default=None,
+        description="Opcional. Versão vista pelo cliente; se informada e desatualizada, retorna 409",
+    )
 
     @field_validator("due_date")
     @classmethod

@@ -72,6 +72,7 @@ app/
 │   ├── config.py         # Settings (pydantic-settings, lê do .env)
 │   └── security.py       # hash de senha, criação/decodificação de JWT
 ├── models/                # SQLAlchemy (User, Project, Task)
+├── services/              # regras reutilizáveis (update atômico com controle de versão)
 ├── repositories/          # consultas mais complexas (paginação/filtros de tasks)
 ├── schemas/                # Pydantic (validação de entrada/saída)
 ├── database.py            # engine, SessionLocal, Base
@@ -103,4 +104,4 @@ Todos os 8 diferenciais opcionais listados no enunciado foram implementados:
 - **Healthcheck verificando o banco**: `GET /health` roda um `SELECT 1` real a cada chamada — `200` se o banco responde, `503` se não. Testado derrubando o `db` de verdade (`docker compose stop db`) e confirmando o `503`.
 - **Pipeline de CI**: `.github/workflows/ci.yml`, três jobs em paralelo — `test` (pytest; sem serviço `postgres` no workflow, já que o testcontainers cuida disso sozinho), `lint` (ruff + mypy) e `docker-build` (garante que o `Dockerfile` continua buildando).
 - **Lint e análise estática**: `ruff` (lint + format) e `mypy`, configurados em `pyproject.toml` e rodando no CI. `B008` ignorado (é o padrão do `Depends()` do FastAPI, não um bug real); `alembic/` excluído (código gerado). Corrigiu achados reais: `raise ... from None` faltando em alguns `except`, enums migrados para `enum.StrEnum`, forward references de relacionamento protegidas com `TYPE_CHECKING`.
-- **Controle otimista de concorrência**: `Project`/`Task` ganharam uma coluna `version`. `PUT`/`PATCH` exigem essa versão no payload (a que o cliente viu no último `GET`) — se não bater com a do banco, `409 VERSION_CONFLICT` sem aplicar a mudança; se bater, aplica e incrementa. Evita que uma atualização sobrescreva outra silenciosamente (*last-write-wins*). Testado com update bem-sucedido (incrementa versão) e update com versão desatualizada (`409`).
+- **Controle otimista de concorrência**: `Project`/`Task` ganharam uma coluna `version`. Em `PUT`/`PATCH` o campo `version` é **opcional**: se informado (a versão vista no último `GET`) e diferente da do banco, retorna `409 VERSION_CONFLICT` sem aplicar a mudança; se omitido, a atualização segue normalmente, como no fluxo padrão. A checagem é atômica — um único `UPDATE ... WHERE id = ? AND version = ?` (`app/services/versioned_update.py`) — então duas requisições simultâneas com a mesma versão não passam ambas. Testado com update com versão, sem versão e com versão desatualizada (`409`).

@@ -1,7 +1,7 @@
 from math import ceil
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_db, get_owned_project
@@ -9,6 +9,7 @@ from app.models.project import Project
 from app.models.user import User
 from app.schemas.pagination import PaginatedResponse
 from app.schemas.project import ProjectCreate, ProjectResponse, ProjectUpdate
+from app.services.versioned_update import apply_versioned_update
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -62,20 +63,14 @@ def update_project(
     current_user: User = Depends(get_current_user),
 ):
     project = get_owned_project(project_id, db, current_user)
-    if payload.version != project.version:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "VERSION_CONFLICT",
-                "message": "O projeto foi alterado por outra requisição desde a última leitura",
-            },
-        )
-    for field, value in payload.model_dump(exclude_unset=True, exclude={"version"}).items():
-        setattr(project, field, value)
-    project.version += 1
-    db.commit()
-    db.refresh(project)
-    return project
+    return apply_versioned_update(
+        db,
+        Project,
+        project,
+        payload.model_dump(exclude_unset=True, exclude={"version"}),
+        payload.version,
+        "O projeto foi alterado por outra requisição desde a última leitura",
+    )
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)

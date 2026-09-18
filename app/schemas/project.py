@@ -12,7 +12,10 @@ class ProjectCreate(BaseModel):
 class ProjectUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=3, max_length=100)
     description: str | None = None
-    version: int = Field(description="Versão do projeto vista pelo cliente antes do update")
+    version: int | None = Field(
+        default=None,
+        description="Opcional. Versão vista pelo cliente; se informada e desatualizada, retorna 409",
+    )
 
 
 class ProjectResponse(BaseModel):

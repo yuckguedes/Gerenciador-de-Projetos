@@ -41,3 +41,13 @@ def test_update_project_with_stale_version_returns_409(auth_client):
     )
     assert stale_update.status_code == 409
     assert stale_update.json()["detail"]["code"] == "VERSION_CONFLICT"
+
+
+def test_update_project_without_version_still_works(auth_client):
+    create_resp = auth_client.post("/projects", json={"name": "Projeto sem versão"})
+    project_id = create_resp.json()["id"]
+
+    update_resp = auth_client.put(f"/projects/{project_id}", json={"name": "Renomeado sem versão"})
+    assert update_resp.status_code == 200
+    assert update_resp.json()["name"] == "Renomeado sem versão"
+    assert update_resp.json()["version"] == 2

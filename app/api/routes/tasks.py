@@ -12,6 +12,7 @@ from app.models.user import User
 from app.repositories.task_repository import list_tasks_by_cursor, list_tasks_paginated
 from app.schemas.pagination import CursorPaginatedResponse, PaginatedResponse
 from app.schemas.task import TaskCreate, TaskFilterParams, TaskResponse, TaskUpdate
+from app.services.versioned_update import apply_versioned_update
 
 router = APIRouter(tags=["tasks"])
 
@@ -110,20 +111,14 @@ def update_task(
     current_user: User = Depends(get_current_user),
 ):
     task = get_owned_task(task_id, db, current_user)
-    if payload.version != task.version:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "VERSION_CONFLICT",
-                "message": "A tarefa foi alterada por outra requisição desde a última leitura",
-            },
-        )
-    for field, value in payload.model_dump(exclude_unset=True, exclude={"version"}).items():
-        setattr(task, field, value)
-    task.version += 1
-    db.commit()
-    db.refresh(task)
-    return task
+    return apply_versioned_update(
+        db,
+        Task,
+        task,
+        payload.model_dump(exclude_unset=True, exclude={"version"}),
+        payload.version,
+        "A tarefa foi alterada por outra requisição desde a última leitura",
+    )
 
 
 @router.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
