@@ -10,3 +10,9 @@ class PaginatedResponse(BaseModel, Generic[T]):
     page_size: int
     total: int
     total_pages: int
+
+
+class CursorPaginatedResponse(BaseModel, Generic[T]):
+    items: List[T]
+    next_cursor: str | None
+    has_more: bool

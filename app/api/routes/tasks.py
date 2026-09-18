@@ -1,13 +1,15 @@
 from typing import Literal
 from uuid import UUID
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
 from sqlalchemy.orm import Session
 from app.api.dependencies import get_db, get_current_user, get_owned_project, get_owned_task
+from app.core.cursor import InvalidCursor
 from app.models.task import Task, TaskStatus, TaskPriority
 from app.models.user import User
 from app.schemas.task import TaskCreate, TaskUpdate, TaskResponse, TaskFilterParams
-from app.schemas.pagination import PaginatedResponse
-from app.repositories.task_repository import list_tasks_paginated
+from app.schemas.pagination import CursorPaginatedResponse, PaginatedResponse
+from app.repositories.task_repository import list_tasks_by_cursor, list_tasks_paginated
 
 router = APIRouter(tags=["tasks"])
 
@@ -61,6 +63,32 @@ def list_tasks(
         total=total,
         total_pages=total_pages,
     )
+
+
+@router.get("/projects/{project_id}/tasks/cursor", response_model=CursorPaginatedResponse[TaskResponse])
+def list_tasks_cursor(
+    project_id: UUID,
+    cursor: str | None = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+    status: TaskStatus | None = Query(None),
+    priority: TaskPriority | None = Query(None),
+    search: str | None = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    get_owned_project(project_id, db, current_user)  # valida dono do projeto
+
+    try:
+        items, next_cursor, has_more = list_tasks_by_cursor(
+            db, project_id, limit=limit, cursor=cursor, status=status, priority=priority, search=search
+        )
+    except InvalidCursor:
+        raise HTTPException(
+            status_code=HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "INVALID_CURSOR", "message": "Cursor inválido"},
+        )
+
+    return CursorPaginatedResponse(items=items, next_cursor=next_cursor, has_more=has_more)
 
 
 @router.get("/tasks/{task_id}", response_model=TaskResponse)
