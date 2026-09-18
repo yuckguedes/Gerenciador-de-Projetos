@@ -1,8 +1,10 @@
 from datetime import timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from app.api.dependencies import get_db, get_current_user
+
+from app.api.dependencies import get_current_user, get_db
 from app.core.config import settings
 from app.core.security import (
     create_access_token,
@@ -98,6 +100,7 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
     new_raw_token = new_token_pair.refresh_token
     new_token_hash = hash_refresh_token(new_raw_token)
     new_token_row = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == new_token_hash))
+    assert new_token_row is not None  # acabamos de inserir essa linha em _issue_token_pair
 
     stored_token.revoked_at = utcnow()
     stored_token.replaced_by_id = new_token_row.id

@@ -1,15 +1,17 @@
 from typing import Literal
 from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
 from sqlalchemy.orm import Session
-from app.api.dependencies import get_db, get_current_user, get_owned_project, get_owned_task
+from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
+
+from app.api.dependencies import get_current_user, get_db, get_owned_project, get_owned_task
 from app.core.cursor import InvalidCursor
-from app.models.task import Task, TaskStatus, TaskPriority
+from app.models.task import Task, TaskPriority, TaskStatus
 from app.models.user import User
-from app.schemas.task import TaskCreate, TaskUpdate, TaskResponse, TaskFilterParams
-from app.schemas.pagination import CursorPaginatedResponse, PaginatedResponse
 from app.repositories.task_repository import list_tasks_by_cursor, list_tasks_paginated
+from app.schemas.pagination import CursorPaginatedResponse, PaginatedResponse
+from app.schemas.task import TaskCreate, TaskFilterParams, TaskResponse, TaskUpdate
 
 router = APIRouter(tags=["tasks"])
 
@@ -86,7 +88,7 @@ def list_tasks_cursor(
         raise HTTPException(
             status_code=HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"code": "INVALID_CURSOR", "message": "Cursor inválido"},
-        )
+        ) from None
 
     return CursorPaginatedResponse(items=items, next_cursor=next_cursor, has_more=has_more)
 

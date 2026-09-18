@@ -1,9 +1,11 @@
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
 from app.core.time import utcnow
-from app.models.task import TaskStatus, TaskPriority
+from app.models.task import TaskPriority, TaskStatus
 
 
 class TaskCreate(BaseModel):

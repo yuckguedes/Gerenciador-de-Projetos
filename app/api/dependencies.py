@@ -1,26 +1,32 @@
 from uuid import UUID
+
+import structlog
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from starlette.requests import Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
 from sqlalchemy.orm import Session
-import structlog
-from app.database import SessionLocal
+from starlette.requests import Request
+
 from app.core.security import decode_access_token
-from app.models.user import User
+from app.database import SessionLocal
 from app.models.project import Project
 from app.models.task import Task
+from app.models.user import User
 
 
 class CustomHTTPBearer(HTTPBearer):
     async def __call__(self, request: Request) -> HTTPAuthorizationCredentials:
         try:
-            return await super().__call__(request)
+            credentials = await super().__call__(request)
+            # com auto_error=True (padrão), o HTTPBearer da FastAPI levanta HTTPException
+            # em vez de retornar None quando o token está ausente.
+            assert credentials is not None
+            return credentials
         except HTTPException:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={"code": "MISSING_TOKEN", "message": "Token de autenticação ausente"},
-            )
+            ) from None
 
 
 bearer_scheme = CustomHTTPBearer()
@@ -50,7 +56,7 @@ def get_current_user(
         if user_id is None:
             raise credentials_exception
     except JWTError:
-        raise credentials_exception
+        raise credentials_exception from None
 
     user = db.get(User, user_id)
     if user is None:

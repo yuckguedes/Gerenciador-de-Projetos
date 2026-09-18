@@ -1,12 +1,12 @@
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from fastapi.testclient import TestClient
 from testcontainers.community.postgres import PostgresContainer
 
-from app.main import app
-from app.database import Base
 from app.api.dependencies import get_db
+from app.database import Base
+from app.main import app
 
 # Sobe um Postgres efêmero em container Docker automaticamente, só para esta
 # sessão de testes. Não depende de nenhum serviço externo (como um `db_test`
@@ -52,15 +52,21 @@ def client():
 
 @pytest.fixture
 def auth_client(client):
-    client.post("/auth/register", json={
-        "name": "Usuario Teste",
-        "email": "usuario@teste.com",
-        "password": "senha12345",
-    })
-    resp = client.post("/auth/login", json={
-        "email": "usuario@teste.com",
-        "password": "senha12345",
-    })
+    client.post(
+        "/auth/register",
+        json={
+            "name": "Usuario Teste",
+            "email": "usuario@teste.com",
+            "password": "senha12345",
+        },
+    )
+    resp = client.post(
+        "/auth/login",
+        json={
+            "email": "usuario@teste.com",
+            "password": "senha12345",
+        },
+    )
     token = resp.json()["access_token"]
     client.headers.update({"Authorization": f"Bearer {token}"})
     return client
@@ -70,16 +76,23 @@ def auth_client(client):
 def second_auth_client(client):
     # cliente separado simulando um segundo usuário, pra testar isolamento entre usuários
     from fastapi.testclient import TestClient as TC
+
     second_client = TC(app)
-    second_client.post("/auth/register", json={
-        "name": "Outro Usuario",
-        "email": "outro@teste.com",
-        "password": "senha12345",
-    })
-    resp = second_client.post("/auth/login", json={
-        "email": "outro@teste.com",
-        "password": "senha12345",
-    })
+    second_client.post(
+        "/auth/register",
+        json={
+            "name": "Outro Usuario",
+            "email": "outro@teste.com",
+            "password": "senha12345",
+        },
+    )
+    resp = second_client.post(
+        "/auth/login",
+        json={
+            "email": "outro@teste.com",
+            "password": "senha12345",
+        },
+    )
     token = resp.json()["access_token"]
     second_client.headers.update({"Authorization": f"Bearer {token}"})
     return second_client

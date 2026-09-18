@@ -1,5 +1,7 @@
 import time
 import uuid
+
+import structlog
 from fastapi import Depends, FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -8,7 +10,6 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
-import structlog
 
 from app.api.dependencies import get_db
 from app.api.routes import auth, projects, tasks

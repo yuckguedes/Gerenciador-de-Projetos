@@ -1,12 +1,14 @@
-from uuid import UUID
 from math import ceil
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
-from app.api.dependencies import get_db, get_current_user, get_owned_project
+
+from app.api.dependencies import get_current_user, get_db, get_owned_project
 from app.models.project import Project
 from app.models.user import User
-from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectResponse
 from app.schemas.pagination import PaginatedResponse
+from app.schemas.project import ProjectCreate, ProjectResponse, ProjectUpdate
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -33,12 +35,7 @@ def list_projects(
 ):
     query = db.query(Project).filter(Project.owner_id == current_user.id)
     total = query.count()
-    items = (
-        query.order_by(Project.created_at.desc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-        .all()
-    )
+    items = query.order_by(Project.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
     return PaginatedResponse(
         items=items,
         page=page,

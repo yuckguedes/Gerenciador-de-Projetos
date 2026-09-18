@@ -12,6 +12,8 @@ API REST para gerenciamento de projetos e tarefas, desenvolvida para o desafio t
 - structlog (logs estruturados em JSON)
 - Docker / Docker Compose
 - Pytest + httpx (TestClient) + testcontainers-python
+- ruff + mypy (lint, formatação e checagem de tipos)
+- GitHub Actions (CI)
 
 ## Como executar
 
@@ -50,6 +52,16 @@ pytest -v
 Não é necessário nenhum passo manual de infraestrutura antes — os testes usam [testcontainers-python](https://testcontainers-python.readthedocs.io/) para subir um container **Postgres efêmero, novo e isolado** automaticamente no início da sessão de testes (via `tests/conftest.py`), e derrubá-lo (incluindo o container "reaper" `testcontainers-ryuk`, que garante a limpeza mesmo se o processo travar) assim que a suíte terminar. Não existe mais um serviço `db_test` fixo no `docker-compose.yml`: o próprio `pytest` gerencia o ciclo de vida completo do banco de teste, container incluído.
 
 Cada teste roda em uma execução isolada: as tabelas são recriadas e destruídas a cada função de teste (`setup_database` em `tests/conftest.py`), então a ordem de execução não importa e não há dados residuais entre testes.
+
+## Lint e checagem de tipos
+
+```bash
+ruff check .
+ruff format --check .
+mypy app tests
+```
+
+Roda automaticamente no CI a cada push/PR (job `lint`). `ruff format .` (sem `--check`) aplica a formatação automaticamente.
 
 ## Estrutura do projeto
 
@@ -94,8 +106,14 @@ tests/               # pytest + conftest.py
 - **Logs estruturados**: adicionamos [structlog](https://www.structlog.org/) (`app/core/logging.py`), configurado para emitir cada log como uma linha JSON (`request_id`, `user_id`, `method`, `path`, `status_code`, `duration_ms`, `timestamp`, `level`). Um middleware (`RequestLoggingMiddleware` em `app/main.py`) gera um `request_id` (`uuid4`) por requisição, devolve ele também no header `X-Request-ID` (para o cliente correlacionar com os logs do servidor), e loga o resultado de cada requisição ao final. O `user_id` é preenchido por `get_current_user` (`app/api/dependencies.py`) quando a requisição é autenticada, e fica `null` em rotas públicas. O catch-all de exceções não tratadas (`app/main.py`) também usa esse logger estruturado, incluindo o traceback completo via `logger.exception(...)`.
   - **Detalhe não óbvio**: o `BaseHTTPMiddleware` do Starlette roda a aplicação downstream (rotas + dependencies) numa *task* asyncio separada da task da própria middleware. Isso quebra a propagação de `contextvars` de volta para a middleware — se `get_current_user` só desse `structlog.contextvars.bind_contextvars(user_id=...)`, esse valor nunca apareceria no log final (que é logado pela middleware, na task de fora). Por isso o `user_id` é gravado em `request.state` (um objeto compartilhado entre as duas tasks) e só depois lido de lá pela middleware — `contextvars` continuam sendo usadas em paralelo para propagar `request_id`/`user_id` para qualquer log emitido dentro da própria rota/dependency.
 - **Endpoint de healthcheck verificando o banco**: `GET /health` (`app/main.py`) executa um `SELECT 1` real contra o Postgres a cada chamada (reaproveitando a mesma dependency `get_db` das demais rotas), e retorna `200 {"status": "ok", "database": "ok"}` se a conexão funcionar, ou `503 {"status": "error", "database": "unreachable"}` se o `SELECT 1` levantar `SQLAlchemyError` (conexão recusada, timeout, etc.). Testado tanto em `tests/test_health.py` (via um `get_db` sobrescrito que sempre levanta `OperationalError`) quanto manualmente contra o Docker Compose real: com `docker compose stop db`, o endpoint passou a responder `503` imediatamente, e voltou a `200` assim que o `db` foi religado (`docker compose start db`) — sem precisar reiniciar a `api`, já que a conexão é testada a cada requisição, não só na inicialização.
-- **Pipeline de CI**: `.github/workflows/ci.yml` roda no GitHub Actions a cada `push`/`pull_request`, com dois jobs em paralelo:
-  - `test`: instala as dependências (com cache do pip via `actions/setup-python`) e roda `pytest -v`. Não há um serviço `postgres` declarado no workflow (diferente do modelo comum de CI para apps com banco): como os testes usam `testcontainers-python`, o próprio `tests/conftest.py` sobe e derruba o Postgres de teste via Docker, e os runners `ubuntu-latest` do GitHub já vêm com Docker instalado e acessível — então não precisa configurar um `DATABASE_URL` ou um serviço de banco à parte no CI.
+- **Pipeline de CI**: `.github/workflows/ci.yml` roda no GitHub Actions a cada `push`/`pull_request`, com três jobs em paralelo:
+  - `test`: instala as dependências (com cache do pip via `actions/setup-python`) e roda `pytest -v`. Não há um serviço `postgres` declarado no workflow (diferente do modelo comum de CI para apps com banco): como os testes usam `testcontainers-python`, o próprio `tests/conftest.py` sobe e derruba o Postgres de teste via Docker, e os runners `ubuntu-latest` do GitHub já vêm com Docker instalado e acessível — então não precisa configurar um `DATABASE_URL` ou um serviço de banco à parte no CI. Precisou de um `cp .env.example .env` antes do `pytest`, porque `Settings()` (`app/core/config.py`) exige variáveis obrigatórias que só existem localmente (o `.env` está no `.gitignore`) — sem isso, a própria importação do app falhava antes de qualquer teste rodar.
+  - `lint`: roda `ruff check .`, `ruff format --check .` e `mypy app tests`.
   - `docker-build`: roda `docker build .` para garantir que o `Dockerfile` continua buildando. Sem esse job, uma quebra no `Dockerfile` (ex.: uma dependência que só funciona fora do container) passaria despercebida, já que o job `test` instala tudo direto com `pip` no runner, sem passar pelo Docker.
-- **Lint e análise estática**: não configuramos `ruff`/`black`/`mypy`. Adicionaria `ruff` (lint + format, mais rápido que a combinação `flake8`+`black`) e `mypy` para checagem de tipos, ambos rodando como parte do CI.
+- **Lint e análise estática**: configuramos [ruff](https://docs.astral.sh/ruff/) (lint + format, num único `pyproject.toml`) e [mypy](https://mypy-lang.org/) (checagem de tipos), ambos rodando no CI (job `lint`). Alguns detalhes das regras escolhidas:
+  - `ruff` ignora `B008` (chamada de função em valor default de parâmetro) porque é exatamente o padrão idiomático do FastAPI (`Depends(get_db)`, `Query(...)`) — a regra existe para pegar bugs comuns em Python puro, mas é um falso positivo sistemático nesse framework.
+  - `ruff` também ignora `UP046` (sugestão de trocar `class Foo(BaseModel, Generic[T])` pela sintaxe nova do PEP 695, `class Foo[T]`): é modernização válida, mas a sintaxe é recente demais e destoaria do resto do código, então mantivemos o `Generic[T]` tradicional nos schemas de paginação.
+  - `alembic/` é excluído de ambas as ferramentas — é código majoritariamente gerado (migrations, `env.py` de template), e não faz sentido aplicar nossas convenções de estilo/tipagem em cima do que o próprio Alembic gera.
+  - Adicionamos o plugin `pydantic.mypy` à config do mypy: sem ele, o mypy não entende que `Settings()` (uma `BaseSettings` do pydantic-settings) recebe seus valores do `.env`/variáveis de ambiente em vez de argumentos do construtor, e reportava (falsamente) todos os campos obrigatórios como faltando.
+  - Corrigimos, de verdade, alguns achados do lint que não eram só estilo: dois `except` que relançavam uma exceção sem `raise ... from None` (perdiam a informação de que a troca de exceção era intencional), duas classes de enum (`TaskStatus`, `TaskPriority`) que agora herdam de `enum.StrEnum` (Python 3.11+) em vez do mixin `(str, enum.Enum)`, e um `assert` explícito em `app/api/routes/auth.py` documentando a invariante de que a linha de `refresh_token` recém-inserida sempre existe na hora de ler ela de volta.
 - **Controle otimista de concorrência**: updates (`PUT`/`PATCH`) atuais não verificam se o registro foi alterado por outra requisição entre o `GET` e o `PUT`/`PATCH` do cliente (last-write-wins). Implementaria com uma coluna `version` (incrementada a cada update) ou comparação de `updated_at`, rejeitando a atualização com `409` se o valor enviado pelo cliente não bater com o atual no banco.

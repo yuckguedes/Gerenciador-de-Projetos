@@ -1,8 +1,10 @@
 import hashlib
 import secrets
 from datetime import timedelta
+
+from jose import jwt
 from passlib.context import CryptContext
-from jose import jwt, JWTError
+
 from app.core.config import settings
 from app.core.time import utcnow
 

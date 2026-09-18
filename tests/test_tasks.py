@@ -8,27 +8,36 @@ def project_id(auth_client):
 
 
 def test_create_task_valid(auth_client, project_id):
-    resp = auth_client.post(f"/projects/{project_id}/tasks", json={
-        "title": "Tarefa válida",
-        "priority": "high",
-    })
+    resp = auth_client.post(
+        f"/projects/{project_id}/tasks",
+        json={
+            "title": "Tarefa válida",
+            "priority": "high",
+        },
+    )
     assert resp.status_code == 201
     assert resp.json()["status"] == "pending"  # valor default
 
 
 def test_create_task_invalid(auth_client, project_id):
-    resp = auth_client.post(f"/projects/{project_id}/tasks", json={
-        "title": "ab",  # menor que o mínimo de 3 caracteres
-        "priority": "high",
-    })
+    resp = auth_client.post(
+        f"/projects/{project_id}/tasks",
+        json={
+            "title": "ab",  # menor que o mínimo de 3 caracteres
+            "priority": "high",
+        },
+    )
     assert resp.status_code == 422
 
 
 def test_partial_update_task(auth_client, project_id):
-    create_resp = auth_client.post(f"/projects/{project_id}/tasks", json={
-        "title": "Tarefa original",
-        "priority": "low",
-    })
+    create_resp = auth_client.post(
+        f"/projects/{project_id}/tasks",
+        json={
+            "title": "Tarefa original",
+            "priority": "low",
+        },
+    )
     task_id = create_resp.json()["id"]
 
     update_resp = auth_client.patch(f"/tasks/{task_id}", json={"status": "in_progress"})
@@ -39,10 +48,13 @@ def test_partial_update_task(auth_client, project_id):
 
 def test_pagination_and_filters(auth_client, project_id):
     for i in range(15):
-        auth_client.post(f"/projects/{project_id}/tasks", json={
-            "title": f"Tarefa {i}",
-            "priority": "high" if i % 2 == 0 else "low",
-        })
+        auth_client.post(
+            f"/projects/{project_id}/tasks",
+            json={
+                "title": f"Tarefa {i}",
+                "priority": "high" if i % 2 == 0 else "low",
+            },
+        )
 
     resp = auth_client.get(f"/projects/{project_id}/tasks?priority=high&page=1&page_size=5")
     data = resp.json()
@@ -55,10 +67,13 @@ def test_pagination_and_filters(auth_client, project_id):
 def test_cursor_pagination_covers_all_items_without_overlap(auth_client, project_id):
     created_ids = []
     for i in range(12):
-        resp = auth_client.post(f"/projects/{project_id}/tasks", json={
-            "title": f"Tarefa cursor {i}",
-            "priority": "low",
-        })
+        resp = auth_client.post(
+            f"/projects/{project_id}/tasks",
+            json={
+                "title": f"Tarefa cursor {i}",
+                "priority": "low",
+            },
+        )
         created_ids.append(resp.json()["id"])
 
     seen_ids = []
@@ -91,10 +106,13 @@ def test_cursor_pagination_invalid_cursor(auth_client, project_id):
 
 
 def test_delete_project_cascades_tasks(auth_client, project_id):
-    create_resp = auth_client.post(f"/projects/{project_id}/tasks", json={
-        "title": "Tarefa que vai sumir",
-        "priority": "medium",
-    })
+    create_resp = auth_client.post(
+        f"/projects/{project_id}/tasks",
+        json={
+            "title": "Tarefa que vai sumir",
+            "priority": "medium",
+        },
+    )
     task_id = create_resp.json()["id"]
 
     delete_resp = auth_client.delete(f"/projects/{project_id}")

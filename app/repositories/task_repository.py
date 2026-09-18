@@ -1,9 +1,11 @@
-from uuid import UUID
 from math import ceil
+from uuid import UUID
+
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
+
 from app.core.cursor import decode_cursor, encode_cursor
-from app.models.task import Task, TaskStatus, TaskPriority
+from app.models.task import Task, TaskPriority, TaskStatus
 from app.schemas.task import TaskFilterParams
 
 
@@ -25,11 +27,7 @@ def list_tasks_paginated(db: Session, project_id: UUID, filters: TaskFilterParam
     column = getattr(Task, filters.order_by)
     query = query.order_by(column.desc() if filters.direction == "desc" else column.asc())
 
-    items = (
-        query.offset((filters.page - 1) * filters.page_size)
-        .limit(filters.page_size)
-        .all()
-    )
+    items = query.offset((filters.page - 1) * filters.page_size).limit(filters.page_size).all()
 
     total_pages = ceil(total / filters.page_size) if total else 0
 
