@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_db
@@ -22,7 +22,8 @@ from app.schemas.user import UserCreate, UserResponse
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-def _issue_token_pair(db: Session, user_id) -> Token:
+def _issue_token_pair(db: Session, user_id) -> tuple[Token, RefreshToken]:
+    """Cria o par de tokens e insere o refresh token (flush, sem commit): quem chama controla a transação."""
     access_token = create_access_token(subject=str(user_id))
 
     raw_refresh_token = generate_refresh_token()
@@ -32,9 +33,9 @@ def _issue_token_pair(db: Session, user_id) -> Token:
         expires_at=utcnow() + timedelta(days=settings.refresh_token_expire_days),
     )
     db.add(refresh_token)
-    db.commit()
+    db.flush()
 
-    return Token(access_token=access_token, refresh_token=raw_refresh_token)
+    return Token(access_token=access_token, refresh_token=raw_refresh_token), refresh_token
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -66,7 +67,9 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
             detail={"code": "INVALID_CREDENTIALS", "message": "E-mail ou senha inválidos"},
         )
 
-    return _issue_token_pair(db, user.id)
+    token_pair, _ = _issue_token_pair(db, user.id)
+    db.commit()
+    return token_pair
 
 
 @router.post("/refresh", response_model=Token)
@@ -95,18 +98,22 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
     if stored_token.expires_at <= utcnow():
         raise invalid_exception
 
-    new_token_pair = _issue_token_pair(db, stored_token.user_id)
-
-    new_raw_token = new_token_pair.refresh_token
-    new_token_hash = hash_refresh_token(new_raw_token)
-    new_token_row = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == new_token_hash))
-    assert new_token_row is not None  # acabamos de inserir essa linha em _issue_token_pair
-
-    stored_token.revoked_at = utcnow()
-    stored_token.replaced_by_id = new_token_row.id
+    # rotação numa única transação: o novo token e a revogação do antigo são confirmados juntos.
+    # o UPDATE condicional (revoked_at IS NULL) garante que, em duas requisições simultâneas com o
+    # mesmo refresh token, só uma consiga rotacionar.
+    token_pair, new_token_row = _issue_token_pair(db, stored_token.user_id)
+    result = db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.id == stored_token.id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=utcnow(), replaced_by_id=new_token_row.id)
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount == 0:
+        db.rollback()
+        raise invalid_exception
     db.commit()
 
-    return new_token_pair
+    return token_pair
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
