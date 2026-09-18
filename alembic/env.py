@@ -23,7 +23,7 @@ config = context.config
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 config.set_main_option("sqlalchemy.url", settings.database_url)
 
@@ -69,6 +69,13 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
+    # permite que quem chama (ex.: os testes) passe uma conexão já aberta via config.attributes
+    existing_connection = config.attributes.get("connection", None)
+
+    if existing_connection is not None:
+        _run_migrations_with(existing_connection)
+        return
+
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
@@ -76,14 +83,18 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-            compare_type=True,
-        )
+        _run_migrations_with(connection)
 
-        with context.begin_transaction():
-            context.run_migrations()
+
+def _run_migrations_with(connection) -> None:
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        compare_type=True,
+    )
+
+    with context.begin_transaction():
+        context.run_migrations()
 
 
 if context.is_offline_mode():

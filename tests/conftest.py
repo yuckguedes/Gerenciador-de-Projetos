@@ -1,12 +1,18 @@
+from pathlib import Path
+
 import pytest
+from alembic.config import Config
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from testcontainers.community.postgres import PostgresContainer
 
+from alembic import command
 from app.api.dependencies import get_db
 from app.database import Base
 from app.main import app
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
 
 # Sobe um Postgres efêmero em container Docker automaticamente, só para esta
 # sessão de testes. Não depende de nenhum serviço externo (como um `db_test`
@@ -27,11 +33,23 @@ def _stop_postgres_container():
     postgres_container.stop()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _apply_migrations():
+    # o schema dos testes vem das migrations reais do Alembic (as mesmas do `docker compose up`),
+    # não de Base.metadata.create_all — assim uma migration quebrada ou faltando derruba os testes.
+    alembic_config = Config(str(ROOT_DIR / "alembic.ini"))
+    alembic_config.set_main_option("script_location", str(ROOT_DIR / "alembic"))
+    with engine.begin() as connection:
+        alembic_config.attributes["connection"] = connection
+        command.upgrade(alembic_config, "head")
+
+
 @pytest.fixture(scope="function", autouse=True)
-def setup_database():
-    Base.metadata.create_all(bind=engine)
+def clean_database(_apply_migrations):
     yield
-    Base.metadata.drop_all(bind=engine)
+    table_names = ", ".join(f'"{table.name}"' for table in Base.metadata.sorted_tables)
+    with engine.begin() as connection:
+        connection.execute(text(f"TRUNCATE {table_names} RESTART IDENTITY CASCADE"))
 
 
 def override_get_db():
