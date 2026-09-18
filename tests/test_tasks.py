@@ -39,11 +39,32 @@ def test_partial_update_task(auth_client, project_id):
         },
     )
     task_id = create_resp.json()["id"]
+    version = create_resp.json()["version"]
 
-    update_resp = auth_client.patch(f"/tasks/{task_id}", json={"status": "in_progress"})
+    update_resp = auth_client.patch(f"/tasks/{task_id}", json={"status": "in_progress", "version": version})
     assert update_resp.status_code == 200
     assert update_resp.json()["status"] == "in_progress"
     assert update_resp.json()["title"] == "Tarefa original"  # não deve ter mudado
+    assert update_resp.json()["version"] == version + 1
+
+
+def test_update_task_with_stale_version_returns_409(auth_client, project_id):
+    create_resp = auth_client.post(
+        f"/projects/{project_id}/tasks",
+        json={
+            "title": "Tarefa concorrente",
+            "priority": "low",
+        },
+    )
+    task_id = create_resp.json()["id"]
+    version = create_resp.json()["version"]
+
+    first_update = auth_client.patch(f"/tasks/{task_id}", json={"status": "in_progress", "version": version})
+    assert first_update.status_code == 200
+
+    stale_update = auth_client.patch(f"/tasks/{task_id}", json={"status": "completed", "version": version})
+    assert stale_update.status_code == 409
+    assert stale_update.json()["detail"]["code"] == "VERSION_CONFLICT"
 
 
 def test_pagination_and_filters(auth_client, project_id):

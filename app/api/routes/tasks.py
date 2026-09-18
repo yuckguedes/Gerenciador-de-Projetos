@@ -110,8 +110,17 @@ def update_task(
     current_user: User = Depends(get_current_user),
 ):
     task = get_owned_task(task_id, db, current_user)
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    if payload.version != task.version:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "VERSION_CONFLICT",
+                "message": "A tarefa foi alterada por outra requisição desde a última leitura",
+            },
+        )
+    for field, value in payload.model_dump(exclude_unset=True, exclude={"version"}).items():
         setattr(task, field, value)
+    task.version += 1
     db.commit()
     db.refresh(task)
     return task

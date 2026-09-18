@@ -30,6 +30,7 @@ class TaskUpdate(BaseModel):
     status: TaskStatus | None = None
     priority: TaskPriority | None = None
     due_date: datetime | None = None
+    version: int = Field(description="Versão da tarefa vista pelo cliente antes do update")
 
     @field_validator("due_date")
     @classmethod
@@ -51,6 +52,7 @@ class TaskResponse(BaseModel):
     project_id: UUID
     created_at: datetime
     updated_at: datetime
+    version: int
 
     model_config = ConfigDict(from_attributes=True)
 

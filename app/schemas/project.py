@@ -12,6 +12,7 @@ class ProjectCreate(BaseModel):
 class ProjectUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=3, max_length=100)
     description: str | None = None
+    version: int = Field(description="Versão do projeto vista pelo cliente antes do update")
 
 
 class ProjectResponse(BaseModel):
@@ -21,5 +22,6 @@ class ProjectResponse(BaseModel):
     owner_id: UUID
     created_at: datetime
     updated_at: datetime
+    version: int
 
     model_config = ConfigDict(from_attributes=True)
