@@ -35,15 +35,6 @@ class TaskUpdate(BaseModel):
         description="Opcional. Versão vista pelo cliente; se informada e desatualizada, retorna 409",
     )
 
-    @field_validator("due_date")
-    @classmethod
-    def due_date_not_past(cls, v: datetime | None) -> datetime | None:
-        if v is not None:
-            now = datetime.now(v.tzinfo) if v.tzinfo else utcnow()
-            if v < now:
-                raise ValueError("due_date não pode ser uma data no passado")
-        return v
-
 
 class TaskResponse(BaseModel):
     id: UUID

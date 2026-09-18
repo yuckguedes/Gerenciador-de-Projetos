@@ -9,23 +9,46 @@ from app.models.task import Task, TaskPriority, TaskStatus
 from app.schemas.task import TaskFilterParams
 
 
-def list_tasks_paginated(db: Session, project_id: UUID, filters: TaskFilterParams):
+def _escape_like(term: str) -> str:
+    # % e _ digitados pelo usuário devem ser buscados literalmente, não tratados como curingas do LIKE
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _filtered_tasks_query(
+    db: Session,
+    project_id: UUID,
+    status: TaskStatus | None,
+    priority: TaskPriority | None,
+    search: str | None,
+):
     query = db.query(Task).filter(Task.project_id == project_id)
 
-    if filters.status is not None:
-        query = query.filter(Task.status == filters.status)
+    if status is not None:
+        query = query.filter(Task.status == status)
 
-    if filters.priority is not None:
-        query = query.filter(Task.priority == filters.priority)
+    if priority is not None:
+        query = query.filter(Task.priority == priority)
 
-    if filters.search:
-        query = query.filter(Task.title.ilike(f"%{filters.search}%"))
+    if search:
+        query = query.filter(Task.title.ilike(f"%{_escape_like(search)}%", escape="\\"))
+
+    return query
+
+
+def list_tasks_paginated(db: Session, project_id: UUID, filters: TaskFilterParams):
+    query = _filtered_tasks_query(db, project_id, filters.status, filters.priority, filters.search)
 
     # conta APÓS os filtros, ANTES da paginação
     total = query.count()
 
     column = getattr(Task, filters.order_by)
-    query = query.order_by(column.desc() if filters.direction == "desc" else column.asc())
+    descending = filters.direction == "desc"
+    # Task.id como desempate: sem ele, linhas com o mesmo valor de ordenação (ex.: mesma prioridade)
+    # não têm ordem estável e podem se repetir ou sumir entre páginas
+    query = query.order_by(
+        column.desc() if descending else column.asc(),
+        Task.id.desc() if descending else Task.id.asc(),
+    )
 
     items = query.offset((filters.page - 1) * filters.page_size).limit(filters.page_size).all()
 
@@ -43,16 +66,7 @@ def list_tasks_by_cursor(
     priority: TaskPriority | None = None,
     search: str | None = None,
 ):
-    query = db.query(Task).filter(Task.project_id == project_id)
-
-    if status is not None:
-        query = query.filter(Task.status == status)
-
-    if priority is not None:
-        query = query.filter(Task.priority == priority)
-
-    if search:
-        query = query.filter(Task.title.ilike(f"%{search}%"))
+    query = _filtered_tasks_query(db, project_id, status, priority, search)
 
     if cursor is not None:
         cursor_created_at, cursor_id = decode_cursor(cursor)

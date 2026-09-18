@@ -51,3 +51,12 @@ def test_update_project_without_version_still_works(auth_client):
     assert update_resp.status_code == 200
     assert update_resp.json()["name"] == "Renomeado sem versão"
     assert update_resp.json()["version"] == 2
+
+
+def test_project_accepts_long_description(auth_client):
+    long_description = "y" * 2000
+    resp = auth_client.post(
+        "/projects", json={"name": "Projeto descricao longa", "description": long_description}
+    )
+    assert resp.status_code == 201
+    assert resp.json()["description"] == long_description
