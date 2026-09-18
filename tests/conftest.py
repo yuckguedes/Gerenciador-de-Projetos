@@ -1,3 +1,5 @@
+import contextlib
+import time
 from pathlib import Path
 
 import pytest
@@ -6,6 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from testcontainers.community.postgres import PostgresContainer
+from testcontainers.core.container import Reaper
 
 from alembic import command
 from app.api.dependencies import get_db
@@ -14,12 +17,46 @@ from app.main import app
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
+
+def _discard_failed_reaper() -> None:
+    # remove à força (e não só `stop()`): um Ryuk que nunca chegou a iniciar continua existindo depois
+    # de um stop e o nome fixo dele faria a nova tentativa falhar com "name already in use"
+    docker_container = getattr(Reaper._container, "_container", None)
+    if docker_container is not None:
+        with contextlib.suppress(Exception):
+            docker_container.remove(force=True)
+    with contextlib.suppress(Exception):
+        Reaper.delete_instance()
+
+
+def _start_postgres_container(attempts: int = 3, delay_seconds: float = 2.0) -> PostgresContainer:
+    """Sobe o Postgres de teste, tentando de novo se o Ryuk (reaper do testcontainers) não subir.
+
+    O testcontainers 4.15 inicia o container do Ryuk e já pergunta ao Docker qual porta do host foi
+    publicada para ele, sem esperar o mapeamento existir. No Docker Desktop (Windows), logo após um
+    período parado ou com muita atividade, o mapeamento ainda não está disponível e o `start()` falha
+    com `ConnectionError: Port mapping ... is not available`. É uma condição de corrida: a segunda
+    tentativa costuma funcionar. Antes de repetir, o Ryuk que ficou pela metade é removido, porque o
+    nome dele é fixo por sessão e conflitaria com o da nova tentativa.
+    """
+    attempt = 1
+    while True:
+        container = PostgresContainer("postgres:16")
+        try:
+            return container.start()
+        except ConnectionError:
+            _discard_failed_reaper()
+            if attempt >= attempts:
+                raise
+            time.sleep(delay_seconds)
+            attempt += 1
+
+
 # Sobe um Postgres efêmero em container Docker automaticamente, só para esta
 # sessão de testes. Não depende de nenhum serviço externo (como um `db_test`
 # do docker-compose) já estar de pé — o próprio testcontainers gerencia o
 # ciclo de vida do container (start aqui, stop no fixture de sessão abaixo).
-postgres_container = PostgresContainer("postgres:16")
-postgres_container.start()
+postgres_container = _start_postgres_container()
 
 TEST_DATABASE_URL = postgres_container.get_connection_url()
 
