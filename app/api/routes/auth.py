@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,6 +11,7 @@ from app.core.security import (
     hash_refresh_token,
     verify_password,
 )
+from app.core.time import utcnow
 from app.models.refresh_token import RefreshToken
 from app.models.user import User
 from app.schemas.token import LoginRequest, LogoutRequest, RefreshRequest, Token
@@ -26,7 +27,7 @@ def _issue_token_pair(db: Session, user_id) -> Token:
     refresh_token = RefreshToken(
         user_id=user_id,
         token_hash=hash_refresh_token(raw_refresh_token),
-        expires_at=datetime.utcnow() + timedelta(days=settings.refresh_token_expire_days),
+        expires_at=utcnow() + timedelta(days=settings.refresh_token_expire_days),
     )
     db.add(refresh_token)
     db.commit()
@@ -85,11 +86,11 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
         db.query(RefreshToken).filter(
             RefreshToken.user_id == stored_token.user_id,
             RefreshToken.revoked_at.is_(None),
-        ).update({"revoked_at": datetime.utcnow()})
+        ).update({"revoked_at": utcnow()})
         db.commit()
         raise invalid_exception
 
-    if stored_token.expires_at <= datetime.utcnow():
+    if stored_token.expires_at <= utcnow():
         raise invalid_exception
 
     new_token_pair = _issue_token_pair(db, stored_token.user_id)
@@ -98,7 +99,7 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
     new_token_hash = hash_refresh_token(new_raw_token)
     new_token_row = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == new_token_hash))
 
-    stored_token.revoked_at = datetime.utcnow()
+    stored_token.revoked_at = utcnow()
     stored_token.replaced_by_id = new_token_row.id
     db.commit()
 
@@ -111,7 +112,7 @@ def logout(payload: LogoutRequest, db: Session = Depends(get_db)):
     stored_token = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == token_hash))
 
     if stored_token is not None and stored_token.revoked_at is None:
-        stored_token.revoked_at = datetime.utcnow()
+        stored_token.revoked_at = utcnow()
         db.commit()
 
 

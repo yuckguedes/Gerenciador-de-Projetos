@@ -1,7 +1,8 @@
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Literal
 from uuid import UUID
 from pydantic import BaseModel, Field, ConfigDict, field_validator
+from app.core.time import utcnow
 from app.models.task import TaskStatus, TaskPriority
 
 
@@ -15,7 +16,7 @@ class TaskCreate(BaseModel):
     @classmethod
     def due_date_not_past(cls, v: datetime | None) -> datetime | None:
         if v is not None:
-            now = datetime.now(v.tzinfo) if v.tzinfo else datetime.utcnow()
+            now = datetime.now(v.tzinfo) if v.tzinfo else utcnow()
             if v < now:
                 raise ValueError("due_date não pode ser uma data no passado")
         return v
@@ -32,7 +33,7 @@ class TaskUpdate(BaseModel):
     @classmethod
     def due_date_not_past(cls, v: datetime | None) -> datetime | None:
         if v is not None:
-            now = datetime.now(v.tzinfo) if v.tzinfo else datetime.utcnow()
+            now = datetime.now(v.tzinfo) if v.tzinfo else utcnow()
             if v < now:
                 raise ValueError("due_date não pode ser uma data no passado")
         return v

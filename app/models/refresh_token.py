@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import String, DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
+from app.core.time import utcnow
 from app.database import Base
 
 
@@ -19,8 +20,8 @@ class RefreshToken(Base):
     replaced_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("refresh_tokens.id"), nullable=True
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
 
     @property
     def is_active(self) -> bool:
-        return self.revoked_at is None and self.expires_at > datetime.utcnow()
+        return self.revoked_at is None and self.expires_at > utcnow()
